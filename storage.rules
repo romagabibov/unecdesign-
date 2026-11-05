@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /work-images/{uid}/{workId}/{imageId} {
+      function owner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+      function editor() {
+        return owner() && request.auth.token.get('role', '') in ['admin', 'student'];
+      }
+      allow get: if owner();
+      allow create: if editor()
+        && workId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && imageId.matches('^[A-Za-z0-9_-]{1,128}$')
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.size >= 12
+        && request.resource.contentType.matches('image/(jpeg|png|webp|avif)');
+    }
+  }
+}

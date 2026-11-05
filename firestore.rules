@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // products/taxonomy/arrivals form the public catalog. Orders carry buyer contact data.
+    // Users have private preferences and separate sales, notifications, and purchase records.
+    // Mutations, including payment transitions and reviews, are validated in Cloud Functions.
+    function signedIn() {
+      return request.auth != null;
+    }
+    function admin() {
+      return signedIn() && request.auth.token.get('role', '') == 'admin';
+    }
+    function self(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function bounded(maximum) {
+      return request.query.limit != null && request.query.limit <= maximum;
+    }
+    function canReadWork(work) {
+      return work.status == 'published' || admin() || self(work.sellerUid);
+    }
+    match /products/{productId} {
+      allow get: if canReadWork(resource.data);
+      allow list: if bounded(100) && canReadWork(resource.data);
+      match /reviews/{reviewId} {
+        function publicWork() {
+          return get(/databases/$(database)/documents/products/$(productId)).data.status == 'published';
+        }
+        allow get: if publicWork();
+        allow list: if bounded(30) && publicWork();
+      }
+    }
+    match /taxonomy/{item} {
+      allow get: if true;
+      allow list: if bounded(120);
+    }
+    match /arrivals/{item} {
+      allow list: if bounded(12);
+    }
+    match /orders/{orderId} {
+      allow get: if admin() || self(resource.data.buyerUid);
+      allow list: if bounded(100) && (admin() || self(resource.data.buyerUid));
+    }
+    match /users/{uid} {
+      allow get: if self(uid);
+      match /sales/{saleId} {
+        allow get: if self(uid);
+        allow list: if self(uid) && bounded(50);
+      }
+      match /notifications/{noticeId} {
+        allow get: if self(uid);
+        allow list: if self(uid) && bounded(50);
+      }
+    }
+    match /questions/{questionId} {
+      allow get: if admin();
+      allow list: if admin() && bounded(50);
+    }
+  }
+}
